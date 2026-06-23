@@ -1,0 +1,35 @@
+# Ayu Dark — matplotlib style
+
+# ── Background & axes ──
+figure.facecolor:   0b0e14
+axes.facecolor:     0b0e14
+savefig.facecolor:  0b0e14
+
+# ── Text ──
+text.color:         bfbdb6
+axes.labelcolor:    bfbdb6
+xtick.color:        bfbdb6
+ytick.color:        bfbdb6
+
+# ── Axes frame & grid ──
+axes.edgecolor:     3d4751
+grid.color:         272d38
+grid.linestyle:     --
+grid.linewidth:     0.5
+axes.grid:          True
+
+# ── Cycle colors (ayu dark palette: red, green, yellow, blue, purple, aqua, orange) ──
+axes.prop_cycle: cycler('color', ['d95757', 'aad94c', 'e6b673', '39bae6', 'd2a6ff', '95e6cb', 'ff8f40', 'f29668', 'ffb454', 'c2d94c', '59c2ff', 'a37acc', '5ccfe6', 'f07178'])
+
+# ── Legend ──
+legend.facecolor:   1f2430
+legend.edgecolor:   3d4751
+legend.labelcolor:  bfbdb6
+legend.framealpha:  0.9
+
+# ── Title ──
+axes.titlecolor:    bfbdb6
+
+# ── Figure layout ──
+figure.dpi:         100
+savefig.dpi:        150

@@ -1,0 +1,35 @@
+# Gruvbox Dark — matplotlib style
+
+# ── Background & axes ──
+figure.facecolor:   282828
+axes.facecolor:     282828
+savefig.facecolor:  282828
+
+# ── Text ──
+text.color:         ebdbb2
+axes.labelcolor:    ebdbb2
+xtick.color:        ebdbb2
+ytick.color:        ebdbb2
+
+# ── Axes frame & grid ──
+axes.edgecolor:     665c54
+grid.color:         504945
+grid.linestyle:     --
+grid.linewidth:     0.5
+axes.grid:          True
+
+# ── Cycle colors (gb dark palette: red, green, yellow, blue, purple, aqua, orange) ──
+axes.prop_cycle: cycler('color', ['cc241d', '98971a', 'd79921', '458588', 'b16286', '689d6a', 'd65d0e', 'fe8019', 'fabd2f', 'b8bb26', '83a598', 'd3869b', '8ec07c', 'fb4934'])
+
+# ── Legend ──
+legend.facecolor:   3c3836
+legend.edgecolor:   665c54
+legend.labelcolor:  ebdbb2
+legend.framealpha:  0.9
+
+# ── Title ──
+axes.titlecolor:    ebdbb2
+
+# ── Figure layout ──
+figure.dpi:         100
+savefig.dpi:        150

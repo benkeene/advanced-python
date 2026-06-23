@@ -1,0 +1,299 @@
+\documentclass{beamer}
+\hypersetup{colorlinks=true, urlcolor=blue}
+\usepackage{listings}
+\lstdefinestyle{demo}{
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{black!5},
+    frame=single,
+    breaklines=true,
+    columns=fullflexible,
+    keepspaces=true,
+}
+% Inline code: verbatim argument, so underscores/braces/etc. need no escaping.
+% Requires the enclosing frame to be [fragile].
+\NewDocumentCommand{\code}{v}{\texttt{#1}}
+\title{Python and DataFrames for Sensible Experiment Management}
+\author{Ben Keene}
+\institute{University of Central Florida}
+\date{23 June 2026}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}
+    \frametitle{Overview}
+    Structured, reproducible workflows for computational research.
+
+    \bigskip
+
+    Today we build a small LLM-benchmarking pipeline end to end, resting on
+    one idea:
+
+    \begin{alertblock}{\centering Dataframes as experiment managers:}
+        \begin{itemize}
+            \item Make parameter sweeps, each run a row.
+            \item Save entire sweep as CSV
+            \item Load it back in, run each row, write results to disk.
+            \item Collate results into a single dataframe for analysis.
+        \end{itemize}
+    \end{alertblock}
+\end{frame}
+
+\begin{frame}
+    \frametitle{The Question}
+    \begin{itemize}
+        \item \url{https://arxiv.org/abs/2205.11916} --- \emph{Large Language
+              Models are Zero-Shot Reasoners} (Kojima et al., 2022).
+        \item The claim: simply appending
+              \textbf{``Let's think step by step''} to a prompt improves
+              reasoning.
+        \item Our job today: reproduce it. Test it against grade-school arithmetic problems.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Example Problem}
+    Think back to 2022, before the explosion of LLMs.
+
+    \bigskip
+
+    Felix has 13 coins. Felix drops 10 coins. Felix drops 2 coins. Felix is
+    given 1 more coin. How many coins does Felix have now?
+
+    \bigskip
+
+    This is not an easy question for a 2022 LLM to answer correctly.
+
+    \bigskip
+
+    We have two prompts: a bare \code{standard} prompt and \code{zs_cot}
+    (``let's think step by step'').
+    We will compare accuracy between these strategies.
+\end{frame}
+
+\begin{frame}
+    \frametitle{Reproducibility}
+    One run proves nothing. To make a claim you'd defend, you need:
+    \begin{itemize}
+        \item \textbf{Many samples}, different questions.
+        \item \textbf{Repeats}, different random seeds.
+        \item \textbf{Fixed seeds}, for reproducibility (NB: LLM temperature).
+        \item \textbf{Recorded work}, so you can re-run stages of the workflow.
+    \end{itemize}
+
+    \bigskip
+
+    That discipline \emph{is} the pipeline. The rest of the talk is its five
+    stages.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{The Big Picture}
+    Each script performs one function.
+    \begin{lstlisting}[style=demo]
+make_arithmetic.py   -> data/arithmetic.jsonl   the dataset
+        |
+build_experiment.py  -> experiment.csv     PLAN   1 row / condition
+        |
+    runner.py        -> runs.csv           RUN    1 row / execution
+                         results/{run_id}.jsonl    + per-sample answers
+        |
+    collate.py       -> collated.csv       COLLATE 1 row / question
+        |
+        v                plots              ANALYSIS
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 0: Data Generation}
+    \code{make_arithmetic.py} writes \code{data/arithmetic.jsonl}. Each item
+    is a dict: a \code{question}, the integer \code{answer}, the \code{steps}
+    it took, and an \code{n_steps} count.
+    \begin{lstlisting}[style=demo]
+>>> dataset[0]
+{'question': 'Mia has 12 coins. Mia drops 5 coins. '
+             'Mia is given 3 more coins. '
+             'How many coins does Mia have now?',
+ 'answer': 10,
+ 'n_steps': 2,
+ 'steps': [-5, 3]}
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Seeded RNG = Reproducibility}
+    The generator seeds Python's RNG from its \code{seed} argument.
+    \textbf{What will the output be?}
+    \begin{lstlisting}[style=demo]
+a = generate_arithmetic(n_steps=3, seed=42)
+b = generate_arithmetic(n_steps=3, seed=42)
+
+a == b     # ?
+    \end{lstlisting}
+
+    \bigskip
+
+    This is key: When you need to reproduce your plots, you can re-run the pipeline with the same seeds and get the same results.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 1:  PLAN}
+    Construct a factory/registry of tasks and LLMs.
+    Dict with keys as names, and values are \code{None} because we don't need to execute these tasks yet, only planning right now.
+    \begin{lstlisting}[style=demo]
+TASK_REGISTRY = {
+    "arithmetic": None,
+    # "coin_flips": None,
+}
+
+LLM_REGISTRY = {
+    "qwen2.5-7b": None,
+}
+    \end{lstlisting}
+    \code{build_experiment.py} raises a \code{KeyError} if a sweep references
+    a task or LLM that isn't registered.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 1: PLAN, Sweeps}
+    Declare an arg space; take its Cartesian product. One \emph{condition} is
+    one point in that product.
+    \begin{lstlisting}[style=demo]
+TASK_SWEEPS = {
+    "arithmetic": {
+        "condition": ["standard", "zs_cot"],
+        "n_samples": [10],
+    },
+}
+LLM_SWEEP = {"llm": ["qwen2.5-7b"],
+             "temperature": [0.0], "top_k": [3]}
+
+llm_combos = itertools.product(
+    *(LLM_SWEEP[k] for k in keys))
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 2: RUN, Expansion}
+    The plan has one row per \emph{condition}. Running it expands each
+    condition into \code{repeats} executions, each with its own \code{run_id}
+    and \code{seed}.
+    \begin{lstlisting}[style=demo]
+for _, cond in plan.iterrows():
+    for k in range(int(cond["repeats"])):
+        rows.append({
+            "run_id": f"run{cond['idx']:02d}_rep{k}",
+            "condition_idx": int(cond["idx"]),
+            "repeat_idx": k,
+            "seed": int(cond["base_seed"]) + k,
+        })
+    \end{lstlisting}
+    That per-run \code{seed} is what makes a single execution reproducible.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 2: RUN, The Live LLM}
+    \code{runner.run_all} calls Qwen2.5-7B through \code{llm.py},  an
+    OpenAI-compatible client that submits queries to our LLM through a parallelized ThreadPoolExecutor.
+    \begin{lstlisting}[style=demo]
+model = Qwen(temperature=0.0, top_k=3)
+
+answers = model.chat([
+    "Mia has 12 coins. ...",
+    "Leo has 8 apples. ...",
+])   # -> list of completions, one per prompt
+    \end{lstlisting}
+    Each run writes its samples to \code{results/{run_id}.jsonl} and a summary
+    row to \code{runs.csv}.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Stage 3: Collate}
+    \code{collate.py} reads the individual outputs of each run and combines them into a single dataframe.
+    \begin{lstlisting}[style=demo]
+frames = []
+for _, run in runs.iterrows():
+    with open(run["results_path"]) as f:
+        samples = pd.DataFrame(
+            json.loads(line) for line in f)
+    for col in RUN_META:
+        samples[col] = run[col]
+    frames.append(samples)
+
+df = pd.concat(frames, ignore_index=True)
+df["correct"] = df["prediction"] == df["answer"]
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Getting Started}
+    Navigate to the following URL to get started: \url{https://bit.ly/rcijupyter}.
+
+    \bigskip
+
+    Your username is the first letter of your first name, and your full last name.
+
+    $$\text{John Doe} \mapsto \text{jdoe}$$
+    $$\text{Ima Knight} \mapsto \text{iknight}$$
+
+    \bigskip
+
+    \begin{alertblock}{\centering Remember your password!}
+        Your password will be set to whatever you enter in the password field.
+        Make sure to remember it for future use.
+    \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Analysis --- Accuracy by Condition}
+    One tidy dataframe, one \code{groupby}. This is the headline:
+    \begin{lstlisting}[style=demo]
+df.groupby("arg_condition")["correct"].mean()
+    \end{lstlisting}
+
+    \bigskip
+
+    \textbf{Predict it first.} Does \code{zs_cot} (``let's think step by
+    step'') actually beat the bare \code{standard} prompt?
+
+    \bigskip
+
+    We reveal the real numbers live in the notebook.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Analysis --- Accuracy by Difficulty}
+    \code{n_steps} is how many arithmetic operations the problem chains.
+    \begin{lstlisting}[style=demo]
+df.groupby("n_steps")["correct"].mean()
+    \end{lstlisting}
+
+    \bigskip
+
+    \textbf{Predict it.} Do you expect accuracy to fall as the problems get
+    longer? By how much?
+
+    \bigskip
+
+    This column only exists because \code{collate} carried it through
+    untouched.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Analysis --- The Cost of Reasoning}
+    \code{zs_cot} makes the model generate a whole chain of reasoning before
+    answering. What does that do to wall-clock time?
+    \begin{lstlisting}[style=demo]
+(df.groupby(["arg_condition", "run_id"])
+   ["runtime_s"].first()
+   .groupby("arg_condition").mean())
+    \end{lstlisting}
+
+    \bigskip
+
+    The accuracy/cost tradeoff: if \code{zs_cot} wins on accuracy, what did it
+    cost you per question?
+\end{frame}
+
+\end{document}
